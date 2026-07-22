@@ -1,0 +1,37 @@
+# Singularity SIF images (multi-GB binaries — never commit)
+*.sif
+
+# Logs
+logs/
+**/logs/
+
+# Build outputs from ds4/
+ds4
+ds4-server
+ds4-bench
+ds4-eval
+ds4-agent
+ds4_test
+ds4_agent_test
+*.o
+*.a
+*.so
+
+# GGUF model files (hundreds of GB — never commit)
+*.gguf
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Keep the git repo lean — only configs, scripts, def files, and source code

@@ -1,0 +1,134 @@
+Bootstrap: docker
+From: nvidia/cuda:12.8.1-devel-ubuntu24.04
+
+%labels
+    Author giacolees
+    Description llama.cpp CUDA/NCCL server for DeepSeek-V4-Flash on 4x A100
+
+%environment
+    export PATH=/opt/llama.cpp/build/bin:$PATH
+    export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
+    export GGML_CUDA_P2P=1
+    export CUDA_VISIBLE_DEVICES=0,1,2,3
+    export MODEL_PATH=/models/DeepSeek-V4-Flash-UD-IQ3_XXS-00001-of-00003.gguf
+    export LLAMA_HOST=0.0.0.0
+    export LLAMA_PORT=8080
+    export LLAMA_CTX=262144
+    export LLAMA_PARALLEL=1
+    export LLAMA_BATCH=4096
+    export LLAMA_UBATCH=512
+    export LLAMA_CACHE_K=q8_0
+    export LLAMA_CACHE_V=q8_0
+
+%post
+    set -eux
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update
+    apt-get install -y --no-install-recommends \
+        build-essential \
+        ca-certificates \
+        cmake \
+        curl \
+        git \
+        libcurl4-openssl-dev \
+        libgomp1 \
+        libssl-dev \
+        ninja-build \
+        pkg-config
+
+    # CUDA devel images may already contain NVIDIA-pinned / held NCCL packages.
+    # Keep those exact packages instead of asking apt to upgrade held packages.
+    dpkg-query -W -f='${Status} ${Version}\n' libnccl2 libnccl-dev || true
+    rm -rf /var/lib/apt/lists/*
+
+    git clone --depth 1 https://github.com/ggml-org/llama.cpp.git /opt/llama.cpp
+    cd /opt/llama.cpp
+
+    # The SIF build environment has no NVIDIA kernel driver and this CUDA image
+    # does not ship libcuda.so stubs. Permit unresolved CUDA Driver API symbols
+    # in shared-library dependencies; `singularity run --nv` supplies libcuda.so.1.
+    cmake -S . -B build -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DGGML_CUDA=ON \
+        -DGGML_CUDA_NCCL=ON \
+        -DCMAKE_CUDA_ARCHITECTURES=80 \
+        -DLLAMA_CURL=ON \
+        -DLLAMA_OPENSSL=ON \
+        -DCMAKE_EXE_LINKER_FLAGS="-Wl,--allow-shlib-undefined" \
+        -DCMAKE_SHARED_LINKER_FLAGS="-Wl,--allow-shlib-undefined"
+
+    cmake --build build --target llama-server llama-cli -j "$(nproc)"
+    strip build/bin/llama-server build/bin/llama-cli || true
+    mkdir -p /models /var/cache/llama.cpp
+
+    cat > /usr/local/bin/start-llama-server <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+
+: "${MODEL_PATH:=/models/DeepSeek-V4-Flash-UD-IQ3_XXS-00001-of-00003.gguf}"
+: "${LLAMA_HOST:=0.0.0.0}"
+: "${LLAMA_PORT:=8080}"
+: "${LLAMA_CTX:=65536}"
+: "${LLAMA_PARALLEL:=4}"
+: "${LLAMA_BATCH:=4096}"
+: "${LLAMA_UBATCH:=512}"
+: "${LLAMA_CACHE_K:=q8_0}"
+: "${LLAMA_CACHE_V:=q8_0}"
+: "${LLAMA_TENSOR_SPLIT:=1,1,1,1}"
+: "${LLAMA_CACHE_REUSE:=256}"
+: "${LLAMA_FIT_TARGET:=2048}"
+
+if [[ ! -r "$MODEL_PATH" ]]; then
+    echo "ERROR: model is not readable: $MODEL_PATH" >&2
+    echo "Bind the host model directory to /models or set SINGULARITYENV_MODEL_PATH." >&2
+    exit 2
+fi
+
+exec /opt/llama.cpp/build/bin/llama-server \
+    --model "$MODEL_PATH" \
+    --host "$LLAMA_HOST" \
+    --port "$LLAMA_PORT" \
+    --n-gpu-layers all \
+    --split-mode layer \
+    --tensor-split "$LLAMA_TENSOR_SPLIT" \
+    --fit on \
+    --fit-target "$LLAMA_FIT_TARGET" \
+    --flash-attn on \
+    --cache-type-k "$LLAMA_CACHE_K" \
+    --cache-type-v "$LLAMA_CACHE_V" \
+    --ctx-size "$LLAMA_CTX" \
+    --parallel "$LLAMA_PARALLEL" \
+    --batch-size "$LLAMA_BATCH" \
+    --ubatch-size "$LLAMA_UBATCH" \
+    --cont-batching \
+    --cache-prompt \
+    --cache-reuse "$LLAMA_CACHE_REUSE" \
+    --metrics \
+    --slots \
+    --reasoning off \
+    "$@"
+SCRIPT
+    chmod 0755 /usr/local/bin/start-llama-server
+
+%test
+    # libcuda.so.1 is injected only when running with --nv.
+    # Do not execute CUDA-linked binaries during the SIF build.
+    test -x /opt/llama.cpp/build/bin/llama-server
+    test -x /opt/llama.cpp/build/bin/llama-cli
+    test -x /usr/local/bin/start-llama-server
+
+    test -f /opt/llama.cpp/build/bin/libggml-cuda.so.0.17.0 || \
+        find /opt/llama.cpp/build/bin \
+            -maxdepth 1 \
+            -name 'libggml-cuda.so*' |
+        grep -q .
+
+%runscript
+    exec /usr/local/bin/start-llama-server "$@"
+
+%help
+    Build:
+      sudo singularity build deepseek-v4-flash-llamacpp.sif deepseek-v4-flash-standalone.def
+
+    Run:
+      singularity run --nv --bind /host/models:/models:ro deepseek-v4-flash-llamacpp.sif

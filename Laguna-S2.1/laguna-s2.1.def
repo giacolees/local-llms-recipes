@@ -1,0 +1,230 @@
+Bootstrap: docker
+From: nvidia/cuda:12.8.1-devel-ubuntu24.04
+
+%labels
+    Author giacolees
+    Description Laguna S 2.1 CUDA/NCCL server with DFlash speculative decoding on 4x A100
+
+%environment
+    export PATH=/opt/llama.cpp/build/bin:$PATH
+    export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
+
+    export GGML_CUDA_P2P=1
+    export CUDA_VISIBLE_DEVICES=0,1,2,3
+
+    export MODEL_PATH=/models/Laguna-S-2.1-UD-Q6_K-00001-of-00003.gguf
+    export DRAFT_MODEL_PATH=
+
+    export LLAMA_HOST=0.0.0.0
+    export LLAMA_PORT=8000
+    export LLAMA_CTX=262144
+    export LLAMA_PARALLEL=1
+    export LLAMA_BATCH=4096
+    export LLAMA_UBATCH=512
+    export LLAMA_CACHE_K=q8_0
+    export LLAMA_CACHE_V=q8_0
+
+    export LLAMA_TENSOR_SPLIT=1,1,1,1
+    export LLAMA_CACHE_REUSE=256
+    export LLAMA_SPEC_DRAFT_N_MAX=15
+
+%post
+    set -eux
+    export DEBIAN_FRONTEND=noninteractive
+
+    apt-get update
+    apt-get install -y --no-install-recommends \
+        build-essential \
+        ca-certificates \
+        cmake \
+        curl \
+        git \
+        libcurl4-openssl-dev \
+        libgomp1 \
+        libssl-dev \
+        ninja-build \
+        pkg-config
+
+    # CUDA development images may already contain NVIDIA-pinned or held
+    # NCCL packages. Retain the versions supplied by the base image.
+    dpkg-query -W -f='${Status} ${Version}\n' \
+        libnccl2 \
+        libnccl-dev || true
+
+    rm -rf /var/lib/apt/lists/*
+
+    # Laguna currently requires Poolside's llama.cpp fork and laguna branch.
+    git clone \
+        --depth 1 \
+        --branch laguna \
+        https://github.com/poolsideai/llama.cpp.git \
+        /opt/llama.cpp
+
+    cd /opt/llama.cpp
+
+    # The SIF build environment does not have an NVIDIA kernel driver.
+    # Permit unresolved CUDA Driver API symbols at build time; libcuda.so.1
+    # is supplied later by `singularity run --nv`.
+    cmake -S . -B build -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DGGML_CUDA=ON \
+        -DGGML_CUDA_NCCL=ON \
+        -DCMAKE_CUDA_ARCHITECTURES=80 \
+        -DLLAMA_CURL=ON \
+        -DLLAMA_OPENSSL=ON \
+        -DCMAKE_EXE_LINKER_FLAGS="-Wl,--allow-shlib-undefined" \
+        -DCMAKE_SHARED_LINKER_FLAGS="-Wl,--allow-shlib-undefined"
+
+    cmake --build build \
+        --target llama-server llama-cli \
+        -j "$(nproc)"
+
+    strip \
+        build/bin/llama-server \
+        build/bin/llama-cli || true
+
+    mkdir -p /models /var/cache/llama.cpp
+
+    cat > /usr/local/bin/start-laguna-server <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+
+: "${MODEL_PATH:=/models/Laguna-S-2.1-UD-Q6_K-00001-of-00003.gguf}"
+: "${DRAFT_MODEL_PATH:=}"
+
+: "${LLAMA_HOST:=0.0.0.0}"
+: "${LLAMA_PORT:=8000}"
+: "${LLAMA_CTX:=65536}"
+: "${LLAMA_PARALLEL:=4}"
+: "${LLAMA_BATCH:=4096}"
+: "${LLAMA_UBATCH:=512}"
+
+: "${LLAMA_CACHE_K:=q8_0}"
+: "${LLAMA_CACHE_V:=q8_0}"
+: "${LLAMA_TENSOR_SPLIT:=1,1,1,1}"
+: "${LLAMA_CACHE_REUSE:=256}"
+
+: "${LLAMA_SPEC_DRAFT_N_MAX:=15}"
+
+if [[ ! -r "$MODEL_PATH" ]]; then
+    echo "ERROR: Laguna model is not readable: $MODEL_PATH" >&2
+    echo "Bind the host model directory to /models or set:" >&2
+    echo "  SINGULARITYENV_MODEL_PATH=/models/<model>.gguf" >&2
+    exit 2
+fi
+
+if [[ -n "$DRAFT_MODEL_PATH" && ! -r "$DRAFT_MODEL_PATH" ]]; then
+    echo "ERROR: DFlash draft model is not readable: $DRAFT_MODEL_PATH" >&2
+    echo "Bind the host model directory to /models or set:" >&2
+    echo "  SINGULARITYENV_DRAFT_MODEL_PATH=/models/<draft-model>.gguf" >&2
+    exit 2
+fi
+
+echo "Starting Laguna server"
+echo "  Main model:       $MODEL_PATH"
+if [[ -n "$DRAFT_MODEL_PATH" ]]; then
+    echo "  DFlash model:     $DRAFT_MODEL_PATH"
+fi
+echo "  Listen address:   $LLAMA_HOST:$LLAMA_PORT"
+echo "  Context size:     $LLAMA_CTX"
+echo "  Parallel slots:   $LLAMA_PARALLEL"
+echo "  Tensor split:     $LLAMA_TENSOR_SPLIT"
+if [[ -n "$DRAFT_MODEL_PATH" ]]; then
+    echo "  Max draft tokens: $LLAMA_SPEC_DRAFT_N_MAX"
+fi
+
+exec /opt/llama.cpp/build/bin/llama-server \
+    --model "$MODEL_PATH" \
+    ${DRAFT_MODEL_PATH:+--model-draft "$DRAFT_MODEL_PATH"} \
+    --host "$LLAMA_HOST" \
+    --port "$LLAMA_PORT" \
+    --jinja \
+    --n-gpu-layers all \
+    --split-mode layer \
+    --tensor-split "$LLAMA_TENSOR_SPLIT" \
+    --flash-attn on \
+    ${DRAFT_MODEL_PATH:+--spec-type draft-dflash} \
+    ${DRAFT_MODEL_PATH:+--spec-draft-n-max "$LLAMA_SPEC_DRAFT_N_MAX"} \
+    --cache-type-k "$LLAMA_CACHE_K" \
+    --cache-type-v "$LLAMA_CACHE_V" \
+    --ctx-size "$LLAMA_CTX" \
+    --parallel "$LLAMA_PARALLEL" \
+    --batch-size "$LLAMA_BATCH" \
+    --ubatch-size "$LLAMA_UBATCH" \
+    --cont-batching \
+    --cache-prompt \
+    --cache-reuse "$LLAMA_CACHE_REUSE" \
+    --metrics \
+    --slots \
+    "$@"
+SCRIPT
+
+    chmod 0755 /usr/local/bin/start-laguna-server
+
+%test
+    # CUDA-linked binaries are not executed here because libcuda.so.1 is
+    # normally injected only when the container is run with --nv.
+    test -x /opt/llama.cpp/build/bin/llama-server
+    test -x /opt/llama.cpp/build/bin/llama-cli
+    test -x /usr/local/bin/start-laguna-server
+
+    test -f /opt/llama.cpp/build/bin/libggml-cuda.so || \
+        find /opt/llama.cpp/build/bin \
+            -maxdepth 1 \
+            -name 'libggml-cuda.so*' |
+        grep -q .
+
+    /opt/llama.cpp/build/bin/llama-server --help 2>&1 |
+        grep -q -- '--spec-type'
+
+    /opt/llama.cpp/build/bin/llama-server --help 2>&1 |
+        grep -q -- '--spec-draft-n-max'
+
+%runscript
+    exec /usr/local/bin/start-laguna-server "$@"
+
+%help
+    Build:
+
+      sudo singularity build \
+        laguna-s-2.1-dflash.sif \
+        laguna-s-2.1-dflash.def
+
+    Run (main model only, no speculative decoding):
+
+      singularity run --nv \
+        --bind /davinci-1/work/glisita/huggingface_cache/gguf/Laguna-S-2.1-GGUF/UD-Q6_K:/models:ro \
+        laguna-s-2.1-dflash.sif
+
+    Run with DFlash speculative decoding:
+
+      SINGULARITYENV_DRAFT_MODEL_PATH=/models/<draft-gguf> \
+      singularity run --nv \
+        --bind /davinci-1/work/glisita/huggingface_cache/gguf/Laguna-S-2.1-GGUF/UD-Q6_K:/models:ro \
+        --bind /path/to/draft-model-dir:/draft:ro \
+        laguna-s-2.1-dflash.sif
+
+    Expected model file (multi-shard, first shard is the entry point):
+
+      /models/Laguna-S-2.1-UD-Q6_K-00001-of-00003.gguf
+
+    Override the model path:
+
+      SINGULARITYENV_MODEL_PATH=/models/MyCustomModel-00001-of-00003.gguf \
+      singularity run --nv \
+        --bind /host/models:/models:ro \
+        laguna-s-2.1-dflash.sif
+
+    Override speculative decoding depth:
+
+      SINGULARITYENV_LLAMA_SPEC_DRAFT_N_MAX=8 \
+      singularity run --nv \
+        --bind /models:/models:ro \
+        laguna-s-2.1-dflash.sif
+
+    Additional llama-server arguments can be appended:
+
+      singularity run --nv \
+        --bind /models:/models:ro \
+        laguna-s-2.1-dflash.sif \
+        --verbose
