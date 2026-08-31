@@ -78,8 +78,9 @@ cd Qwen3.8-Flash-Next-GGUF
 ./build-qwen-sif.sh
 ```
 
-The helper detects Singularity or Apptainer, prompts for a GitHub PAT, and
-passes it through a temporary file only during the build. Press Enter if the
+The helper detects Singularity or Apptainer, uses unprivileged `--fakeroot`
+mode, prompts for a GitHub PAT, and passes it through a temporary file only
+during the build. Press Enter if the
 public repository is sufficient. For a private fork, set the repository first:
 
 ```bash

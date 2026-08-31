@@ -156,7 +156,9 @@ SCRIPT
 
 %help
     Build:
-      sudo singularity build qwen3.8-flash-next-llamacpp.sif qwen3.8-flash-next.def
+      ./build-qwen-sif.sh
+
+    The helper uses the unprivileged --fakeroot build mode.
 
     Run:
       singularity run --nv \
