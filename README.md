@@ -44,6 +44,7 @@ local-LLMs/
 │
 ├── Qwen3.8-Flash-Next-GGUF/         # llama.cpp Qwen3.8-Flash-Next GGUF server
 │   ├── run-qwen-server.sh           # Launcher (sources active profile)
+│   ├── build-qwen-sif.sh            # Build helper (prompts for PAT)
 │   ├── qwen3.8-flash-next.def       # Singularity definition
 │   └── logs/
 │
@@ -70,60 +71,24 @@ cd Laguna-S2.1 && ./run-laguna-server.sh
 
 ## Build the Qwen3.8 GGUF SIF
 
-From the repository root, build the CUDA-enabled llama.cpp image:
+The easiest way to build the CUDA-enabled llama.cpp SIF on 4×A100 is:
 
 ```bash
 cd Qwen3.8-Flash-Next-GGUF
-sudo singularity build \
-  qwen3.8-flash-next-llamacpp.sif \
-  qwen3.8-flash-next.def
+./build-qwen-sif.sh
 ```
 
-Apptainer can be used instead:
+The helper detects Singularity or Apptainer, prompts for a GitHub PAT, and
+passes it through a temporary file only during the build. Press Enter if the
+public repository is sufficient. For a private fork, set the repository first:
 
 ```bash
-sudo apptainer build \
-  qwen3.8-flash-next-llamacpp.sif \
-  qwen3.8-flash-next.def
-```
-
-For an unprivileged build, use a configured remote builder:
-
-```bash
-apptainer build --remote \
-  qwen3.8-flash-next-llamacpp.sif \
-  qwen3.8-flash-next.def
+LLAMA_REPO=https://github.com/<org>/<private-llama-fork>.git ./build-qwen-sif.sh
 ```
 
 The build compiles llama.cpp with CUDA/NCCL and does not include the GGUF
 weights. Keep the resulting SIF at the path configured by the active profile.
-
-For the 4×A100 build, an authenticated clone can be supplied without storing
-the PAT in the repository. This is only needed for a private fork; the
-official `ggml-org/llama.cpp` repository is public. The token is passed through
-a temporary bind-mounted file because build-time host variables are not exposed
-to `%post` automatically:
-
-```bash
-cd Qwen3.8-Flash-Next-GGUF
-read -rsp 'GitHub PAT: ' GITHUB_PAT
-printf '\n'
-# Optional, if using a private fork:
-# export LLAMA_REPO=https://github.com/<org>/<private-llama-fork>.git
-LLAMA_REPO="${LLAMA_REPO:-https://github.com/ggml-org/llama.cpp.git}"
-BUILD_ENV_FILE="$(mktemp)"
-trap 'rm -f "$BUILD_ENV_FILE"; unset GITHUB_PAT LLAMA_REPO BUILD_ENV_FILE' EXIT
-chmod 600 "$BUILD_ENV_FILE"
-printf 'GITHUB_PAT=%q\nLLAMA_REPO=%q\n' "$GITHUB_PAT" "$LLAMA_REPO" > "$BUILD_ENV_FILE"
-sudo singularity build \
-  --bind "$BUILD_ENV_FILE:/tmp/llama-build.env:ro" \
-  qwen3.8-flash-next-llamacpp.sif \
-  qwen3.8-flash-next.def
-```
-
-The PAT is used only during `%post` to clone llama.cpp and is not embedded in
-the SIF environment or repository files. Replace `singularity` with
-`apptainer` if that is the installed runtime.
+The PAT is not stored in the repository or SIF.
 
 ## Adding a New Profile
 
