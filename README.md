@@ -5,7 +5,7 @@ hardware profiles. Currently supports:
 
 | Profile | GPUs | Total VRAM | Inference Engines |
 |---------|------|-----------|-------------------|
-| `4xa100`  | 4× NVIDIA A100-SXM4-40GB | 160 GB | DwarfStar (ds4), llama.cpp (DS4-flash, Laguna S2.1), vLLM (Qwen) |
+| `4xa100`  | 4× NVIDIA A100-SXM4-40GB | 160 GB | DwarfStar (ds4), llama.cpp (DS4-flash, Qwen3.8 GGUF, Laguna S2.1), vLLM (Qwen) |
 | `2xa6000` | 2× NVIDIA RTX A6000 48GB  | 96 GB  | Same engines, adjusted params |
 
 ## Directory Layout
@@ -17,12 +17,14 @@ local-LLMs/
 │   │   ├── config.env               # Shared GPU layout (devices, split, NUMA)
 │   │   ├── ds4-flash.env            # llama.cpp DeepSeek V4 Flash overrides
 │   │   ├── laguna.env               # Laguna S2.1 overrides
-│   │   └── qwen.env                 # vLLM Qwen overrides
+│   │   ├── qwen.env                 # vLLM Qwen overrides
+│   │   └── qwen3.8-flash-next.env   # llama.cpp Qwen3.8 GGUF overrides
 │   └── 2xa6000/                     # 2×A6000 configs (same file set)
 │       ├── config.env
 │       ├── ds4-flash.env
 │       ├── laguna.env
-│       └── qwen.env
+│       ├── qwen.env
+│       └── qwen3.8-flash-next.env
 │
 ├── switch-profile.sh                # Source this to activate a profile
 │
@@ -38,6 +40,11 @@ local-LLMs/
 │
 ├── Qwen3.6-27B/                     # vLLM Qwen3.6-27B server
 │   ├── run-qwen-server.sh           # Launcher (sources active profile)
+│   └── logs/
+│
+├── Qwen3.8-Flash-Next-GGUF/         # llama.cpp Qwen3.8-Flash-Next GGUF server
+│   ├── run-qwen-server.sh           # Launcher (sources active profile)
+│   ├── qwen3.8-flash-next.def       # Singularity definition
 │   └── logs/
 │
 ├── ds4/                             # DwarfStar native inference engine
@@ -57,6 +64,7 @@ source ./switch-profile.sh 2xa6000   # for the 2×A6000 machine
 # 2. Run any server — it picks up the active profile automatically
 cd DS4-flash && ./run-deepseek-server.sh
 cd Qwen3.6-27B && ./run-qwen-server.sh
+cd Qwen3.8-Flash-Next-GGUF && ./run-qwen-server.sh
 cd Laguna-S2.1 && ./run-laguna-server.sh
 ```
 
@@ -81,6 +89,10 @@ cp profiles/4xa100/config.env profiles/<your-profile>/config.env
    `CUDA_VISIBLE_DEVICES`, `TENSOR_SPLIT`, `GPU_COUNT`, NUMA bindings, etc.
 2. Each `run-*.sh` script reads `LLM_HW_PROFILE` (or defaults to `4xa100`),
    sources `config.env` for shared GPU layout, then sources its project-specific
-   `.env` for model paths and server parameters.
-3. To change hardware, re-source `switch-profile.sh` with a different profile.
+   `.env` for model paths and server parameters. The Qwen3.8 GGUF launcher uses
+   UD-IQ3_XXS on 2×A6000 and UD-Q4_K_XL on 4×A100.
+3. The Qwen3.8 GGUF launcher passes
+   `--override-tensor per_layer_token_embd=CPU` so its large n-gram/PLE table is
+   kept in host RAM instead of GPU VRAM on both hardware profiles.
+4. To change hardware, re-source `switch-profile.sh` with a different profile.
    No script editing needed.
