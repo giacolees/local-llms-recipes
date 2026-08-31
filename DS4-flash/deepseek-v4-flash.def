@@ -128,7 +128,9 @@ SCRIPT
 
 %help
     Build:
-      sudo singularity build deepseek-v4-flash-llamacpp.sif deepseek-v4-flash-standalone.def
+      ./build-sif.sh
+
+    The helper uses the unprivileged --fakeroot build mode.
 
     Run:
       singularity run --nv --bind /host/models:/models:ro deepseek-v4-flash-llamacpp.sif

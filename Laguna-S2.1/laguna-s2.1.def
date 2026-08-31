@@ -186,9 +186,9 @@ SCRIPT
 %help
     Build:
 
-      sudo singularity build \
-        laguna-s-2.1-dflash.sif \
-        laguna-s-2.1-dflash.def
+      ./build-sif.sh
+
+      The helper uses the unprivileged --fakeroot build mode.
 
     Run (main model only, no speculative decoding):
 

@@ -30,12 +30,14 @@ local-LLMs/
 │
 ├── DS4-flash/                       # llama.cpp DeepSeek V4 Flash server
 │   ├── run-deepseek-server.sh       # Launcher (sources active profile)
+│   ├── build-sif.sh                 # Unprivileged SIF build helper
 │   ├── deepseek-v4-flash.def        # Singularity definition file
 │   ├── deepseek-v4-flash-llamacpp.sif  # Pre-built container
 │   └── logs/
 │
 ├── Laguna-S2.1/                     # Laguna S2.1 with DFlash speculative decoding
 │   ├── run-laguna-server.sh         # Launcher (sources active profile)
+│   ├── build-sif.sh                 # Unprivileged SIF build helper
 │   └── laguna-s2.1.def              # Singularity definition file
 │
 ├── Qwen3.6-27B/                     # vLLM Qwen3.6-27B server
@@ -90,6 +92,16 @@ LLAMA_REPO=https://github.com/<org>/<private-llama-fork>.git ./build-qwen-sif.sh
 The build compiles llama.cpp with CUDA/NCCL and does not include the GGUF
 weights. Keep the resulting SIF at the path configured by the active profile.
 The PAT is not stored in the repository or SIF.
+
+The other llama.cpp images have the same no-admin build flow:
+
+```bash
+cd ../DS4-flash && ./build-sif.sh
+cd ../Laguna-S2.1 && ./build-sif.sh
+```
+
+All build helpers use the unprivileged `--fakeroot` mode. The cluster must have
+fakeroot/user namespaces enabled for the current account.
 
 ## Adding a New Profile
 
