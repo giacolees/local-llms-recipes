@@ -47,7 +47,25 @@ From: nvidia/cuda:12.8.1-devel-ubuntu24.04
     dpkg-query -W -f='${Status} ${Version}\n' libnccl2 libnccl-dev || true
     rm -rf /var/lib/apt/lists/*
 
-    git clone --depth 1 https://github.com/ggml-org/llama.cpp.git /opt/llama.cpp
+    # The official repository is public, but allow an authenticated clone for
+    # a private fork. The optional build-env file is bind-mounted by the
+    # 4xa100 build instructions; it is never copied into the image. Disable
+    # xtrace for this entire block so the token cannot appear in build logs.
+    set +x
+    if [[ -r /tmp/llama-build.env ]]; then
+        # shellcheck disable=SC1091
+        source /tmp/llama-build.env
+    fi
+    LLAMA_REPO="${LLAMA_REPO:-https://github.com/ggml-org/llama.cpp.git}"
+    if [[ -n "${GITHUB_PAT:-}" ]]; then
+        GITHUB_AUTH="$(printf 'x-access-token:%s' "${GITHUB_PAT}" | base64 -w 0)"
+        git -c "http.extraheader=AUTHORIZATION: basic ${GITHUB_AUTH}" \
+            clone --depth 1 "${LLAMA_REPO}" /opt/llama.cpp
+    else
+        git clone --depth 1 "${LLAMA_REPO}" /opt/llama.cpp
+    fi
+    unset GITHUB_AUTH GITHUB_PAT LLAMA_REPO
+    set -x
     cd /opt/llama.cpp
 
     # The SIF build environment has no NVIDIA kernel driver and this CUDA image
