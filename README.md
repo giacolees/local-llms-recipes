@@ -6,7 +6,7 @@ hardware profiles. Currently supports:
 | Profile | GPUs | Total VRAM | Inference Engines |
 |---------|------|-----------|-------------------|
 | `4xa100`  | 4× NVIDIA A100-SXM4-40GB | 160 GB | DwarfStar (ds4), llama.cpp (DS4-flash, Qwen3.8 GGUF, Laguna S2.1), vLLM (Qwen) |
-| `2xa6000` | 2× NVIDIA RTX A6000 48GB  | 96 GB  | Same engines, adjusted params |
+| `2xa6000` | 2× NVIDIA RTX A6000 48GB  | 96 GB  | Same engines, adjusted params, plus vLLM-on-Docker multi-replica recipes |
 
 ## Directory Layout
 
@@ -18,12 +18,14 @@ local-LLMs/
 │   │   ├── ds4-flash.env            # llama.cpp DeepSeek V4 Flash overrides
 │   │   ├── laguna.env               # Laguna S2.1 overrides
 │   │   ├── qwen.env                 # vLLM Qwen overrides
+│   │   ├── vllm-docker.env          # vLLM-on-Docker recipe settings
 │   │   └── qwen3.8-flash-next.env   # llama.cpp Qwen3.8 GGUF overrides
 │   └── 2xa6000/                     # 2×A6000 configs (same file set)
 │       ├── config.env
 │       ├── ds4-flash.env
 │       ├── laguna.env
 │       ├── qwen.env
+│       ├── vllm-docker.env
 │       └── qwen3.8-flash-next.env
 │
 ├── switch-profile.sh                # Source this to activate a profile
@@ -50,6 +52,15 @@ local-LLMs/
 │   ├── qwen3.8-flash-next.def       # Singularity definition
 │   └── logs/
 │
+├── vllm-docker/                     # vLLM on Docker — multi-replica INT4 recipes
+│   ├── models/                      # gemma4-e4b, qwen3.5-9b-awq, phi-4-14b,
+│   │                                # gemma4-26b-a4b, qwen3.6-35b-a3b, qwen3.6-27b
+│   ├── run-model.sh                 # Start N GPU-pinned replicas of a recipe
+│   ├── stop-model.sh / status.sh
+│   ├── download-models.sh           # Prefetch INT4 weights into the HF cache
+│   ├── setup-docker.sh              # One-time: nvidia-container-toolkit + docker group
+│   └── tests/                       # Per-model suites + test-all.sh (see its README)
+│
 ├── ds4/                             # DwarfStar native inference engine
 │   └── (source code, Makefile, etc.)
 │
@@ -69,7 +80,16 @@ cd DS4-flash && ./run-deepseek-server.sh
 cd Qwen3.6-27B && ./run-qwen-server.sh
 cd Qwen3.8-Flash-Next-GGUF && ./run-qwen-server.sh
 cd Laguna-S2.1 && ./run-laguna-server.sh
+
+# 3. Or the Docker multi-replica recipes (sized for the 2xa6000 machine)
+cd vllm-docker
+sudo ./setup-docker.sh && newgrp docker   # one-time host setup
+./tests/test-all.sh                       # per-model test suites on this hardware
+./run-model.sh gemma4-e4b                 # 12 replicas on ports 8100-8111
 ```
+
+See `vllm-docker/README.md` for the recipe table (replica budgets, VRAM math,
+per-model test matrix).
 
 ## Build the Qwen3.8 GGUF SIF
 
