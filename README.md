@@ -53,8 +53,9 @@ local-LLMs/
 │   └── logs/
 │
 ├── vllm-docker/                     # vLLM on Docker — multi-replica model recipes
-│   ├── models/                      # gemma4-e4b, qwen3.5-2b, qwen3.5-4b, qwen3.5-9b, phi-4-14b,
-│   │                                # gemma4-26b-a4b, qwen3.6-35b-a3b, qwen3.6-27b,
+│   ├── models/                      # gemma4-e4b, qwen3.5-0.8b, qwen3.5-2b, qwen3.5-4b,
+│   │                                # qwen3.5-9b, phi-4-14b, gemma4-26b-a4b,
+│   │                                # qwen3.6-35b-a3b, qwen3.6-27b,
 │   │                                # qwen3.5-35b-a3b
 │   ├── run-model.sh                 # Start N GPU-pinned replicas of a recipe
 │   ├── stop-model.sh / status.sh
