@@ -166,13 +166,13 @@ if [[ "${f}" == "0" ]]; then pass smoke "${REPLICAS}/${REPLICAS} replicas comple
 JSON_PAYLOAD="$(jq -cn --arg m "${MODEL}" '{
     model:$m,
     messages:[{role:"user", content:"Triage this ticket: \u0027Login button misaligned on Safari, looks high priority, related to UI and Safari\u0027."}],
-    max_tokens:160, temperature:0,
+    max_tokens:256, temperature:0,
     response_format:{type:"json_schema", json_schema:{name:"ticket_triage", schema:{
         type:"object",
         properties:{
             title:{type:"string"},
             severity:{type:"integer", minimum:0, maximum:10},
-            tags:{type:"array", items:{type:"string"}}},
+            tags:{type:"array", maxItems:8, items:{type:"string"}}},
         required:["title","severity","tags"], additionalProperties:false}}}
 }')"
 
