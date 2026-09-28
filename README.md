@@ -54,7 +54,8 @@ local-LLMs/
 │
 ├── vllm-docker/                     # vLLM on Docker — multi-replica INT4 recipes
 │   ├── models/                      # gemma4-e4b, qwen3.5-9b-awq, phi-4-14b,
-│   │                                # gemma4-26b-a4b, qwen3.6-35b-a3b, qwen3.6-27b
+│   │                                # gemma4-26b-a4b, qwen3.6-35b-a3b, qwen3.6-27b,
+│   │                                # qwen3.5-35b-a3b
 │   ├── run-model.sh                 # Start N GPU-pinned replicas of a recipe
 │   ├── stop-model.sh / status.sh
 │   ├── download-models.sh           # Prefetch INT4 weights into the HF cache

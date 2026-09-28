@@ -15,6 +15,7 @@ run them on the 2xa6000 machine.
 | `gemma4-26b-a4b` | 26B/3.8B MoE, ~16 GB | **4** | 2 | 0.45 | 21.6 GiB | 8400–8403 | Structured JSON + function calling, 256K ctx (see profile below) |
 | `qwen3.6-35b-a3b` | 35B/3B MoE, ~21 GB | **2** | 1 | 0.60 | 28.8 GiB | 8500–8501 | Best capability-per-token on this rig |
 | `qwen3.6-27b` | 27B dense, ~16 GB | 4 | 2 | 0.45 | 21.6 GiB | 8600–8603 | **Don't** — A/B control only (see below) |
+| `qwen3.5-35b-a3b` | 35B/3B MoE, ~21 GB | **2** | 1 | 0.60 | 28.8 GiB | 8700–8701 | Previous-gen 35B/3B MoE — A/B control vs 3.6 |
 
 **Why not Qwen3.6-27B:** a dense 27B reads ~27B weights per generated token,
 ≈ 9× the per-token weight traffic of the 3B-active Qwen3.6-35B-A3B MoE, at
@@ -89,7 +90,7 @@ curl http://127.0.0.1:8100/v1/chat/completions \
 ## Tests (per model, on this hardware)
 
 ```bash
-./tests/test-all.sh                          # all 6 recipes, sequentially
+./tests/test-all.sh                          # all 7 recipes, sequentially
 ./tests/test-model.sh qwen3.6-35b-a3b        # one recipe
 KEEP=1 ./tests/test-model.sh gemma4-e4b      # leave replicas up afterwards
 ```
