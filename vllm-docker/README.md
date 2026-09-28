@@ -11,7 +11,8 @@ run them on the 2xa6000 machine.
 | Recipe (`models/`) | Weights | Replicas | /GPU | `GPU_MEM_UTIL` | Per replica | Ports | Role |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `gemma4-e4b` | 4B dense, BF16 ~16 GB | **2** (1/GPU) | 1 | 0.45 | 21.6 GiB | 8100-8101 | Small agentic workhorse; native structured JSON + function calling |
-| `qwen3.5-4b` | 4B dense, BF16 ~9.3 GB | **4** (2/GPU) | 2 | 0.30 | 14.4 GiB | 8800-8803 | Smallest tier; latency/quality read |
+| `qwen3.5-4b` | 4B dense, BF16 ~9.3 GB | **4** (2/GPU) | 2 | 0.30 | 14.4 GiB | 8800-8803 | Small tier; latency/quality read |
+| `qwen3.5-2b` | 2B dense, BF16 ~4.5 GB | **4** (2/GPU) | 2 | 0.25 | 12.0 GiB | 8900-8903 | Smallest tier; latency floor |
 | `qwen3.5-9b` | 9B dense, BF16 ~19.3 GB | **2** (1/GPU) | 1 | 0.50 | 24.0 GiB | 8200-8201 | Cheap workhorse for single-turn sweeps |
 | `phi-4-14b` | 14B dense, BF16 ~28 GB | **1** | 1 | 0.70 | 33.6 GiB | 8300 | Middle ground if the 4-9B tier fails the gate (JSON only, no tools) |
 | `gemma4-26b-a4b` | 26B/3.8B MoE, BF16 ~51.6 GB | **1** (TP=2) | 2 | 0.70 | 33.6 GiB/GPU | 8400 | Structured JSON + function calling, 256K ctx (see profile below) |
