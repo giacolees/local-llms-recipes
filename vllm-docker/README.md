@@ -1,21 +1,23 @@
 # vLLM on Docker — model recipes for 2× RTX A6000 (96 GB)
 
-OpenAI-compatible vLLM servers, one Docker container per replica, pinned
-one-GPU-per-replica (TP=1) so replicas scale linearly and never pay PCIe
-all-reduce costs. Recipes are sized for the `2xa6000` profile (96 GB total);
+OpenAI-compatible vLLM servers, one Docker container per replica; models that
+fit one card are pinned one-GPU-per-replica (TP=1) so replicas scale linearly
+and never pay PCIe all-reduce costs, and models larger than one card use a
+single TP=2 replica. Recipes are sized for the `2xa6000` profile (96 GB total);
 run them on the 2xa6000 machine.
 
 ## Recipes
 
-| Recipe (`models/`) | Weights (quant) | Replicas | /GPU | `GPU_MEM_UTIL` | Per replica | Ports | Role |
-|---|---|---|---|---|---|---|---|
-| `gemma4-e4b` | 4B dense, ~2.5 GB | **12** (10–12) | 6 | 0.15 | 7.2 GiB | 8100–8111 | Maximum parallelism; native structured JSON + function calling |
-| `qwen3.5-9b-awq` | 9B dense, ~5.5 GB | **8** | 4 | 0.22 | 10.6 GiB | 8200–8207 | Cheap workhorse for single-turn sweeps |
-| `phi-4-14b` | 14B dense, ~8.5 GB | **6** | 3 | 0.30 | 14.4 GiB | 8300–8305 | Middle ground if the 4–9B tier fails the gate (JSON only, no tools) |
-| `gemma4-26b-a4b` | 26B/3.8B MoE, ~16 GB | **4** | 2 | 0.45 | 21.6 GiB | 8400–8403 | Structured JSON + function calling, 256K ctx (see profile below) |
-| `qwen3.6-35b-a3b` | 35B/3B MoE, ~21 GB | **2** | 1 | 0.60 | 28.8 GiB | 8500–8501 | Best capability-per-token on this rig |
-| `qwen3.6-27b` | 27B dense, ~16 GB | 4 | 2 | 0.45 | 21.6 GiB | 8600–8603 | **Don't** — A/B control only (see below) |
-| `qwen3.5-35b-a3b` | 35B/3B MoE (VL), **FP8** ~37.5 GB | **1** | 2 | 0.90 | 43.2 GiB | 8700 | Previous-gen 35B/3B reasoning MoE; no official INT4, so one TP=2 replica |
+| Recipe (`models/`) | Weights | Replicas | /GPU | `GPU_MEM_UTIL` | Per replica | Ports | Role |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `gemma4-e4b` | 4B dense, BF16 ~16 GB | **2** (1/GPU) | 1 | 0.45 | 21.6 GiB | 8100-8101 | Small agentic workhorse; native structured JSON + function calling |
+| `qwen3.5-4b` | 4B dense, BF16 ~9.3 GB | **4** (2/GPU) | 2 | 0.30 | 14.4 GiB | 8800-8803 | Smallest tier; latency/quality read |
+| `qwen3.5-9b` | 9B dense, BF16 ~19.3 GB | **2** (1/GPU) | 1 | 0.50 | 24.0 GiB | 8200-8201 | Cheap workhorse for single-turn sweeps |
+| `phi-4-14b` | 14B dense, BF16 ~28 GB | **1** | 1 | 0.70 | 33.6 GiB | 8300 | Middle ground if the 4-9B tier fails the gate (JSON only, no tools) |
+| `gemma4-26b-a4b` | 26B/3.8B MoE, BF16 ~51.6 GB | **1** (TP=2) | 2 | 0.70 | 33.6 GiB/GPU | 8400 | Structured JSON + function calling, 256K ctx (see profile below) |
+| `qwen3.6-35b-a3b` | 35B/3B MoE, BF16 ~71.9 GB | **1** (TP=2) | 2 | 0.80 | 38.4 GiB/GPU | 8500 | Best capability-per-token on this rig |
+| `qwen3.6-27b` | 27B dense, BF16 ~55.6 GB | **1** (TP=2) | 2 | 0.70 | 33.6 GiB/GPU | 8600 | **Don't** - A/B control only (see below) |
+| `qwen3.5-35b-a3b` | 35B/3B MoE (VL), **FP8** ~37.5 GB | **1** (TP=2) | 2 | 0.90 | 43.2 GiB/GPU | 8700 | Previous-gen 35B/3B reasoning MoE; no official INT4, so one TP=2 replica |
 
 **Why not Qwen3.6-27B:** a dense 27B reads ~27B weights per generated token,
 ≈ 9× the per-token weight traffic of the 3B-active Qwen3.6-35B-A3B MoE, at
@@ -35,15 +37,16 @@ Per-request opt-in: `"chat_template_kwargs": {"enable_thinking": true}`.
 ```text
 replicas_per_gpu × GPU_MEM_UTIL ≤ 0.95        # enforced by run-model.sh
 per replica  = GPU_MEM_UTIL × 48 GiB
-             = quantized weights + runtime/CUDA ctx + KV cache (fp8 @ MAX_MODEL_LEN)
+             = BF16 weights + runtime/CUDA ctx + KV cache (fp8 @ MAX_MODEL_LEN)
 per GPU      = Σ replicas + ≤ 5 GiB headroom for CUDA contexts (outside gmu)
 ```
 
-All recipes use `--kv-cache-dtype fp8` so the KV cache fits alongside quantized
-weights. Everything is overridable — e.g. more KV headroom on the E4B tier:
+All recipes use `--kv-cache-dtype fp8` so the KV cache fits alongside the BF16
+weights. Everything is overridable — e.g. a single-endpoint benchmark launch on
+the E4B tier:
 
 ```bash
-REPLICAS=10 GPU_MEM_UTIL=0.17 ./run-model.sh gemma4-e4b
+REPLICAS=1 GPU_MEM_UTIL=0.60 ./run-model.sh gemma4-e4b
 ```
 
 Gemma 4 26B-A4B's headline 256K context as a dedicated one-replica profile:
@@ -72,9 +75,9 @@ cd vllm-docker
 export HF_TOKEN=hf_...        # Gemma models are gated
 ./download-models.sh          # optional: prefetch weights before serving
 
-./run-model.sh gemma4-e4b                     # start 12 replicas, wait for /health
-./run-model.sh qwen3.6-35b-a3b                # 2 replicas
-REPLICAS=1 ./run-model.sh phi-4-14b           # quick single-instance smoke
+./run-model.sh gemma4-e4b                     # start 2 replicas, wait for /health
+./run-model.sh qwen3.6-35b-a3b                # 1 TP=2 replica
+REPLICAS=1 ./run-model.sh phi-4-14b           # single-instance smoke
 DRY_RUN=1 ./run-model.sh gemma4-26b-a4b       # print the docker commands only
 
 ./status.sh [model-key]        # replica states + GPU memory
@@ -87,7 +90,7 @@ Calling a replica (each is a full OpenAI API server):
 ```bash
 curl http://127.0.0.1:8100/v1/chat/completions \
   -H 'Content-Type: application/json' \
-  -d '{"model":"google/gemma-4-e4b-it-awq","messages":[{"role":"user","content":"hi"}]}'
+  -d '{"model":"google/gemma-4-E4B-it","messages":[{"role":"user","content":"hi"}]}'
 ```
 
 ### Config precedence
@@ -140,8 +143,8 @@ vllm-docker/
 
 Recipes assume `vllm/vllm-openai:latest`; pin a version with
 `VLLM_IMAGE=vllm/vllm-openai:<tag>` in `profiles/2xa6000/vllm-docker.env`.
-Model IDs in `models/*.env` are the quantized (INT4/AWQ or FP8) checkpoints this rig is sized
-for — override `MODEL=` at launch if you pull a different quant repo.
+Model IDs in `models/*.env` are the upstream (BF16) or FP8 checkpoints this rig is
+sized for — override `MODEL=` at launch if you pull a different quant repo.
 
 ## Harness self-test (no GPUs needed)
 
@@ -149,7 +152,7 @@ for — override `MODEL=` at launch if you pull a different quant repo.
 harness itself (CI or when editing `test-model.sh`):
 
 ```bash
-MOCK_MODEL=google/gemma-4-e4b-it-awq MOCK_MAX_LEN=32768 \
+MOCK_MODEL=google/gemma-4-E4B-it MOCK_MAX_LEN=32768 \
   python3 tests/mock-server.py &
 REPLICA_URLS=http://127.0.0.1:9999 NO_START=1 ./tests/test-model.sh gemma4-e4b
 ```
