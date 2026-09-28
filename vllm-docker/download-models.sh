@@ -32,7 +32,7 @@ for key in "${KEYS[@]}"; do
         -v "${HF_HOME}:/root/.cache/huggingface" \
         -e HF_HOME=/root/.cache/huggingface \
         ${HF_TOKEN:+-e HF_TOKEN} \
-        --entrypoint python \
+        --entrypoint python3 \
         "${VLLM_IMAGE}" \
         -c "from huggingface_hub import snapshot_download; snapshot_download('${MODEL}'); print('downloaded: ${MODEL}')"
 done
