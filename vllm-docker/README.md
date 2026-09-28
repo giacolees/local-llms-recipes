@@ -7,7 +7,7 @@ run them on the 2xa6000 machine.
 
 ## Recipes
 
-| Recipe (`models/`) | Weights (INT4) | Replicas | /GPU | `GPU_MEM_UTIL` | Per replica | Ports | Role |
+| Recipe (`models/`) | Weights (quant) | Replicas | /GPU | `GPU_MEM_UTIL` | Per replica | Ports | Role |
 |---|---|---|---|---|---|---|---|
 | `gemma4-e4b` | 4B dense, ~2.5 GB | **12** (10–12) | 6 | 0.15 | 7.2 GiB | 8100–8111 | Maximum parallelism; native structured JSON + function calling |
 | `qwen3.5-9b-awq` | 9B dense, ~5.5 GB | **8** | 4 | 0.22 | 10.6 GiB | 8200–8207 | Cheap workhorse for single-turn sweeps |
@@ -15,22 +15,31 @@ run them on the 2xa6000 machine.
 | `gemma4-26b-a4b` | 26B/3.8B MoE, ~16 GB | **4** | 2 | 0.45 | 21.6 GiB | 8400–8403 | Structured JSON + function calling, 256K ctx (see profile below) |
 | `qwen3.6-35b-a3b` | 35B/3B MoE, ~21 GB | **2** | 1 | 0.60 | 28.8 GiB | 8500–8501 | Best capability-per-token on this rig |
 | `qwen3.6-27b` | 27B dense, ~16 GB | 4 | 2 | 0.45 | 21.6 GiB | 8600–8603 | **Don't** — A/B control only (see below) |
-| `qwen3.5-35b-a3b` | 35B/3B MoE, ~21 GB | **2** | 1 | 0.60 | 28.8 GiB | 8700–8701 | Previous-gen 35B/3B MoE — A/B control vs 3.6 |
+| `qwen3.5-35b-a3b` | 35B/3B MoE (VL), **FP8** ~37.5 GB | **1** | 2 | 0.90 | 43.2 GiB | 8700 | Previous-gen 35B/3B reasoning MoE; no official INT4, so one TP=2 replica |
 
 **Why not Qwen3.6-27B:** a dense 27B reads ~27B weights per generated token,
 ≈ 9× the per-token weight traffic of the 3B-active Qwen3.6-35B-A3B MoE, at
 lower capability. It is kept as the dense-vs-MoE control for gate tests.
 
+**Why `qwen3.5-35b-a3b` is one TP=2 replica:** there is no official AWQ/INT4
+build for it (the base `Qwen/Qwen3.5-35B-A3B` is 71.9 GB BF16 and does not fit),
+so the recipe uses the official **FP8** build (~37.5 GB). Those weights do not fit
+one 48 GiB card alongside KV, hence a single replica split across both GPUs
+(`TP=2`). It is also a reasoning model: left on, it spends the whole token budget
+in `reasoning_content` and returns `content: null` (measured: 600/600 tokens), so
+the recipe disables thinking by default via `--default-chat-template-kwargs`.
+Per-request opt-in: `"chat_template_kwargs": {"enable_thinking": true}`.
+
 ### Memory math (per 48 GiB A6000)
 
-```
+```text
 replicas_per_gpu × GPU_MEM_UTIL ≤ 0.95        # enforced by run-model.sh
 per replica  = GPU_MEM_UTIL × 48 GiB
-             = INT4 weights + runtime/CUDA ctx + KV cache (fp8 @ MAX_MODEL_LEN)
+             = quantized weights + runtime/CUDA ctx + KV cache (fp8 @ MAX_MODEL_LEN)
 per GPU      = Σ replicas + ≤ 5 GiB headroom for CUDA contexts (outside gmu)
 ```
 
-All recipes use `--kv-cache-dtype fp8` so the KV cache fits alongside INT4
+All recipes use `--kv-cache-dtype fp8` so the KV cache fits alongside quantized
 weights. Everything is overridable — e.g. more KV headroom on the E4B tier:
 
 ```bash
@@ -131,7 +140,7 @@ vllm-docker/
 
 Recipes assume `vllm/vllm-openai:latest`; pin a version with
 `VLLM_IMAGE=vllm/vllm-openai:<tag>` in `profiles/2xa6000/vllm-docker.env`.
-Model IDs in `models/*.env` are the INT4/AWQ checkpoints this rig is sized
+Model IDs in `models/*.env` are the quantized (INT4/AWQ or FP8) checkpoints this rig is sized
 for — override `MODEL=` at launch if you pull a different quant repo.
 
 ## Harness self-test (no GPUs needed)
