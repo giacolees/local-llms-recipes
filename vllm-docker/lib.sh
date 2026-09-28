@@ -172,7 +172,6 @@ build_vllm_args() {
         --max-num-seqs "${MAX_NUM_SEQS}"
         --trust-remote-code
         --enable-prefix-caching
-        --disable-log-requests
     )
     [[ -n "${QUANTIZATION:-}" ]] && VLLM_ARGS+=(--quantization "${QUANTIZATION}")
     [[ -n "${REASONING_PARSER:-}" ]] && VLLM_ARGS+=(--reasoning-parser "${REASONING_PARSER}")

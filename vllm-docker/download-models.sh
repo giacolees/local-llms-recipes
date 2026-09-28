@@ -22,7 +22,7 @@ else
     mapfile -t KEYS < <(basename -s .env "${VLLM_DIR}"/models/*.env)
 fi
 
-mkdir -p "${HF_HOME}"
+mkdir -p "${HF_HOME:-${HOME}/.cache/huggingface}"
 
 for key in "${KEYS[@]}"; do
     load_config "${key}"
