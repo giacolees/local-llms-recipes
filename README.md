@@ -7,6 +7,7 @@ hardware profiles. Currently supports:
 |---------|------|-----------|-------------------|
 | `4xa100`  | 4× NVIDIA A100-SXM4-40GB | 160 GB | DwarfStar (ds4), llama.cpp (DS4-flash, Qwen3.8 GGUF, Laguna S2.1), vLLM (Qwen) |
 | `2xa6000` | 2× NVIDIA RTX A6000 48GB  | 96 GB  | Same engines, adjusted params, plus vLLM-on-Docker multi-replica recipes |
+| `4xa6000` | 2 nodes × 2× NVIDIA RTX A6000 48GB | 192 GB | Same single-node engines per node, plus the multi-node Qwen3.8-27B vLLM cluster (TP=2 × PP=2) |
 
 ## Directory Layout
 
@@ -20,13 +21,17 @@ local-LLMs/
 │   │   ├── qwen.env                 # vLLM Qwen overrides
 │   │   ├── vllm-docker.env          # vLLM-on-Docker recipe settings
 │   │   └── qwen3.8-flash-next.env   # llama.cpp Qwen3.8 GGUF overrides
-│   └── 2xa6000/                     # 2×A6000 configs (same file set)
+│   ├── 2xa6000/                     # 2×A6000 configs (same file set)
 │       ├── config.env
 │       ├── ds4-flash.env
 │       ├── laguna.env
 │       ├── qwen.env
 │       ├── vllm-docker.env
 │       └── qwen3.8-flash-next.env
+│   └── 4xa6000/                     # 2 nodes × 2×A6000 (multi-node cluster)
+│       ├── config.env               # per-node GPU layout + TP/PP
+│       ├── qwen3.8-27b-cluster.env  # cluster topology, model and serve options
+│       └── (ds4-flash, laguna, qwen, qwen3.8-flash-next, vllm-docker).env
 │
 ├── switch-profile.sh                # Source this to activate a profile
 │
@@ -52,6 +57,13 @@ local-LLMs/
 │   ├── qwen3.8-flash-next.def       # Singularity definition
 │   └── logs/
 │
+├── Qwen3.8-27B-Cluster/             # Multi-node vLLM cluster (2 workstations × 2×A6000)
+│   ├── lib.sh                       # Profile loader + node/container helpers
+│   ├── cluster_up.sh                # Containers + Ray across all nodes
+│   ├── serve.sh / stop.sh / status.sh
+│   ├── provision_node.sh            # Copy image/weights/wheels over the LAN
+│   └── README.md
+│
 ├── vllm-docker/                     # vLLM on Docker — multi-replica model recipes
 │   ├── models/                      # gemma4-e4b, qwen3.5-0.8b, qwen3.5-2b, qwen3.5-4b,
 │   │                                # qwen3.5-9b, phi-4-14b, gemma4-26b-a4b,
@@ -76,6 +88,8 @@ local-LLMs/
 source ./switch-profile.sh 4xa100    # for the 4×A100 machine
 # or
 source ./switch-profile.sh 2xa6000   # for the 2×A6000 machine
+# or
+source ./switch-profile.sh 4xa6000   # for the 2-node 4×A6000 cluster
 
 # 2. Run any server — it picks up the active profile automatically
 cd DS4-flash && ./run-deepseek-server.sh
@@ -88,10 +102,16 @@ cd vllm-docker
 sudo ./setup-docker.sh && newgrp docker   # one-time host setup
 ./tests/test-all.sh                       # per-model test suites on this hardware
 ./run-model.sh gemma4-e4b                 # 12 replicas on ports 8100-8111
+
+# 4. Or the multi-node vLLM cluster (2 workstations × 2×A6000, 10 GbE)
+source ./switch-profile.sh 4xa6000
+cd Qwen3.8-27B-Cluster
+./cluster_up.sh && ./serve.sh --wait      # Qwen3.8-27B via Ray, TP=2 × PP=2
 ```
 
 See `vllm-docker/README.md` for the recipe table (replica budgets, VRAM math,
-per-model test matrix).
+per-model test matrix) and `Qwen3.8-27B-Cluster/README.md` for the multi-node
+cluster (topology, provisioning, API usage, troubleshooting).
 
 ## Build the Qwen3.8 GGUF SIF
 
@@ -148,8 +168,13 @@ cp profiles/4xa100/config.env profiles/<your-profile>/config.env
    sources `config.env` for shared GPU layout, then sources its project-specific
    `.env` for model paths and server parameters. The Qwen3.8 GGUF launcher uses
    UD-IQ3_XXS on 2×A6000 and UD-Q4_K_XL on 4×A100.
-3. The Qwen3.8 GGUF launcher passes
+3. Multi-node recipes follow the same pattern: `Qwen3.8-27B-Cluster/lib.sh`
+   sources `profiles/<profile>/config.env` and then
+   `profiles/<profile>/qwen3.8-27b-cluster.env`, which holds the node arrays
+   (names, SSH targets, IPs, NICs, GPUs) plus the model and `vllm serve`
+   options. On `4xa6000` this is TP=2 (inside a node) × PP=2 (across nodes).
+4. The Qwen3.8 GGUF launcher passes
    `--override-tensor per_layer_token_embd=CPU` so its large n-gram/PLE table is
    kept in host RAM instead of GPU VRAM on both hardware profiles.
-4. To change hardware, re-source `switch-profile.sh` with a different profile.
+5. To change hardware, re-source `switch-profile.sh` with a different profile.
    No script editing needed.
