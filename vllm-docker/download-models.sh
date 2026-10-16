@@ -25,14 +25,18 @@ fi
 mkdir -p "${HF_HOME:-${HOME}/.cache/huggingface}"
 
 for key in "${KEYS[@]}"; do
-    load_config "${key}"
-    echo "=== ${key}: ${MODEL} ==="
-    run_docker run --rm \
-        --gpus all \
-        -v "${HF_HOME}:/root/.cache/huggingface" \
-        -e HF_HOME=/root/.cache/huggingface \
-        ${HF_TOKEN:+-e HF_TOKEN} \
-        --entrypoint python3 \
-        "${VLLM_IMAGE}" \
-        -c "from huggingface_hub import snapshot_download; snapshot_download('${MODEL}'); print('downloaded: ${MODEL}')"
+    # Keep load_config's model-specific variables local to this iteration.
+    # Otherwise its MODEL value can leak into the next key in this shell.
+    (
+        load_config "${key}"
+        echo "=== ${key}: ${MODEL} ==="
+        run_docker run --rm \
+            --gpus all \
+            -v "${HF_HOME}:/root/.cache/huggingface" \
+            -e HF_HOME=/root/.cache/huggingface \
+            ${HF_TOKEN:+-e HF_TOKEN} \
+            --entrypoint python3 \
+            "${VLLM_IMAGE}" \
+            -c "from huggingface_hub import snapshot_download; snapshot_download('${MODEL}'); print('downloaded: ${MODEL}')"
+    )
 done

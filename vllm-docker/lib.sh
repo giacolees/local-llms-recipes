@@ -81,6 +81,19 @@ load_config() {
         i=$((i + 1))
     done
 
+    # The RadarBench launch envelope is intentionally conservative for the
+    # supported A6000 profile. Keep these overrides scoped to benchmark runs;
+    # regular recipe launches retain their per-model serving defaults.
+    if [[ "${LLM_BENCHMARK:-0}" == "1" ]]; then
+        KV_CACHE_DTYPE=auto
+        MAX_NUM_SEQS=1
+        EXTRA_ARGS="${EXTRA_ARGS:-}"
+        [[ " ${EXTRA_ARGS} " == *" --max-num-batched-tokens "* ]] ||
+            EXTRA_ARGS+=" --max-num-batched-tokens 2048"
+        [[ " ${EXTRA_ARGS} " == *" --no-enable-prefix-caching "* ]] ||
+            EXTRA_ARGS+=" --no-enable-prefix-caching"
+    fi
+
     # ---- derived / defaults for shared plumbing ----
     MODEL_KEY="${key}"
     REPLICAS="${REPLICAS:-1}"
