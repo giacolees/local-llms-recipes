@@ -91,3 +91,18 @@ are invented. Run local checks with `python3 -m unittest discover -s tests -v`.
 
 References: [vLLM Docker deployment](https://docs.vllm.ai/en/stable/deployment/docker/)
 and [benchmark CLI](https://docs.vllm.ai/en/stable/cli/bench/serve/).
+
+## Additional upstream recipes
+
+The merged upstream changes also provide:
+
+* [Docker multi-replica recipes](vllm-docker/README.md), including model download
+  helpers, token setup, and per-model test suites.
+* [Qwen3.8 multi-node cluster](Qwen3.8-27B-Cluster/README.md), with provisioning,
+  Ray orchestration, and TP=2 × PP=2 serving across two A6000 workstations.
+* A `4xa6000` hardware profile for that two-node cluster.
+
+These upstream additions retain their existing directories and profile loaders.
+The model-local layout above applies to the four migrated recipes. Their new
+shared vLLM launcher currently has tuning files for `4xa100` and `2xa6000`;
+use the upstream launchers for `4xa6000` until model-local tuning is added.
