@@ -10,7 +10,6 @@
 # This sets LLM_HW_PROFILE and sources the profile's config.env so that
 # all run-*.sh scripts pick up the correct GPU layout automatically.
 # =============================================================================
-set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROFILES_DIR="${REPO_ROOT}/profiles"
@@ -60,5 +59,5 @@ echo "  CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 echo "  GPU_COUNT=${GPU_COUNT}"
 echo "  TENSOR_SPLIT=${TENSOR_SPLIT:-${TENSOR_PARALLEL_SIZE:-N/A}}"
 echo
-echo "Per-project configs are at: ${PROFILE_DIR}/"
+echo "Model configs are at: ${REPO_ROOT}/recipes/<model>/profiles/${PROFILE}*.env"
 echo "Run your server scripts normally — they will source the active profile."

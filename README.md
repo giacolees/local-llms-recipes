@@ -1,133 +1,93 @@
-# local-LLMs — Multi-Hardware LLM Inference Configs
+# Local LLM recipes
 
-A repository of LLM inference configurations and launchers for different GPU
-hardware profiles. Currently supports:
-
-| Profile | GPUs | Total VRAM | Inference Engines |
-|---------|------|-----------|-------------------|
-| `4xa100`  | 4× NVIDIA A100-SXM4-40GB | 160 GB | DwarfStar (ds4), llama.cpp (DS4-flash, Qwen3.8 GGUF, Laguna S2.1), vLLM (Qwen) |
-| `2xa6000` | 2× NVIDIA RTX A6000 48GB  | 96 GB  | Same engines, adjusted params |
-
-## Directory Layout
+Model recipes for 4× A100 40 GB (`4xa100`) and 2× RTX A6000 48 GB
+(`2xa6000`). Every model lives under one `recipes/<model>/` directory.
 
 ```
-local-LLMs/
-├── profiles/                        # Hardware profiles
-│   ├── 4xa100/                      # 4×A100 configs
-│   │   ├── config.env               # Shared GPU layout (devices, split, NUMA)
-│   │   ├── ds4-flash.env            # llama.cpp DeepSeek V4 Flash overrides
-│   │   ├── laguna.env               # Laguna S2.1 overrides
-│   │   ├── qwen.env                 # vLLM Qwen overrides
-│   │   └── qwen3.8-flash-next.env   # llama.cpp Qwen3.8 GGUF overrides
-│   └── 2xa6000/                     # 2×A6000 configs (same file set)
-│       ├── config.env
-│       ├── ds4-flash.env
-│       ├── laguna.env
-│       ├── qwen.env
-│       └── qwen3.8-flash-next.env
-│
-├── switch-profile.sh                # Source this to activate a profile
-│
-├── DS4-flash/                       # llama.cpp DeepSeek V4 Flash server
-│   ├── run-deepseek-server.sh       # Launcher (sources active profile)
-│   ├── build-sif.sh                 # Unprivileged SIF build helper
-│   ├── deepseek-v4-flash.def        # Singularity definition file
-│   ├── deepseek-v4-flash-llamacpp.sif  # Pre-built container
-│   └── logs/
-│
-├── Laguna-S2.1/                     # Laguna S2.1 with DFlash speculative decoding
-│   ├── run-laguna-server.sh         # Launcher (sources active profile)
-│   ├── build-sif.sh                 # Unprivileged SIF build helper
-│   └── laguna-s2.1.def              # Singularity definition file
-│
-├── Qwen3.6-27B/                     # vLLM Qwen3.6-27B server
-│   ├── run-qwen-server.sh           # Launcher (sources active profile)
-│   └── logs/
-│
-├── Qwen3.8-Flash-Next-GGUF/         # llama.cpp Qwen3.8-Flash-Next GGUF server
-│   ├── run-qwen-server.sh           # Launcher (sources active profile)
-│   ├── build-qwen-sif.sh            # Build helper (prompts for PAT)
-│   ├── qwen3.8-flash-next.def       # Singularity definition
-│   └── logs/
-│
-├── ds4/                             # DwarfStar native inference engine
-│   └── (source code, Makefile, etc.)
-│
-└── vllm-openai.sif                  # Pre-built vLLM Singularity image
+recipes/<model>/
+  serve.sh                    # shared vLLM launcher: Docker or Singularity
+  vllm.env                    # model identity
+  profiles/<profile>.vllm.env # vLLM tuning
+  profiles/<profile>.env      # original engine tuning
+  run-*.sh, *.def             # original launch/build recipes, where available
+profiles/<profile>/config.env # shared hardware layout
+scripts/                     # shared vLLM launch and SIF conversion
+benchmarks/                  # runner, raw results by profile, summary CSV
 ```
 
-## Quick Start
+Models: `DS4-flash`, `Laguna-S2.1`, `Qwen3.6-27B`, and
+`Qwen3.8-Flash-Next-GGUF`. The GGUF suffix identifies the original recipe;
+vLLM uses separately configured compatible weights.
+
+## vLLM quick start
+
+Requires Linux, NVIDIA drivers, and either Docker with NVIDIA Container Toolkit
+or Singularity/Apptainer with NVIDIA support. Select an image version supporting
+your model architecture and quantization; pin its digest for reproducible runs.
 
 ```bash
-# 1. Activate a hardware profile (sets CUDA_VISIBLE_DEVICES, tensor split, etc.)
-source ./switch-profile.sh 4xa100    # for the 4×A100 machine
-# or
-source ./switch-profile.sh 2xa6000   # for the 2×A6000 machine
+source ./switch-profile.sh 4xa100
+export VLLM_IMAGE=vllm/vllm-openai:<tested-version>
+export LLM_RUNTIME=docker
+./recipes/Qwen3.6-27B/serve.sh
 
-# 2. Run any server — it picks up the active profile automatically
-cd DS4-flash && ./run-deepseek-server.sh
-cd Qwen3.6-27B && ./run-qwen-server.sh
-cd Qwen3.8-Flash-Next-GGUF && ./run-qwen-server.sh
-cd Laguna-S2.1 && ./run-laguna-server.sh
+# Import exactly the same OCI image into a SIF, without a custom CUDA build.
+./scripts/build-vllm-sif.sh
+LLM_RUNTIME=singularity ./recipes/Qwen3.6-27B/serve.sh
+# LLM_RUNTIME=apptainer is also supported.
 ```
 
-## Build the Qwen3.8 GGUF SIF
+Replace `<tested-version>` with a real tag or digest. For other models, set
+`VLLM_MODEL` to a supported HF repository or absolute local safetensors directory;
+see each recipe's README. No compatible vLLM IDs are guessed for the three
+original GGUF recipes. vLLM support, quantization fit and actual GPU inference
+still need validation on the target machines. The shared launcher does not
+convert GGUF weights or make unsupported architectures loadable.
 
-The easiest way to build the CUDA-enabled llama.cpp SIF on 4×A100 is:
+`HF_HOME` defaults to `~/.cache/huggingface`; `HF_TOKEN` is forwarded when set.
+`VLLM_SIF` defaults to `images/vllm-openai.sif`. Host networking exposes the
+server on `PORT` (default 8000). `HOST`, `PORT`, `TP`, `MAX_MODEL_LEN`,
+`GPU_MEMORY_UTILIZATION`, and `MODEL_REVISION` override defaults. Extra arguments
+are forwarded to vLLM. Hardware settings are loaded fresh per invocation.
 
 ```bash
-cd Qwen3.8-Flash-Next-GGUF
-./build-qwen-sif.sh
+DRY_RUN=1 LLM_RUNTIME=docker ./recipes/Qwen3.6-27B/serve.sh
+MAX_MODEL_LEN=16384 ./recipes/Qwen3.6-27B/serve.sh --max-num-seqs 4
+curl http://127.0.0.1:8000/health
 ```
 
-The helper detects Singularity or Apptainer, uses unprivileged `--fakeroot`
-mode, prompts for a GitHub PAT, and passes it through a temporary file only
-during the build. Press Enter if the
-public repository is sufficient. For a private fork, set the repository first:
+The served model name is the recipe directory name. Only enable remote model
+code explicitly with `--trust-remote-code` when your model requires it.
 
-```bash
-LLAMA_REPO=https://github.com/<org>/<private-llama-fork>.git ./build-qwen-sif.sh
-```
+## Original llama.cpp recipes and migration
 
-The build compiles llama.cpp with CUDA/NCCL and does not include the GGUF
-weights. Keep the resulting SIF at the path configured by the active profile.
-The PAT is not stored in the repository or SIF.
+Existing model directories moved under `recipes/`; model overrides moved from
+`profiles/<hardware>/<model>.env` to `recipes/<model>/profiles/<hardware>.env`.
+Update job scripts and local SIF locations accordingly. Existing uncommitted
+build-script edits were retained. SIF files and model weights are not versioned.
 
-The other llama.cpp images have the same no-admin build flow:
+Run build helpers and `run-*.sh` inside their new model directories. Set
+`GGUF_MODELS_DIR` (default `~/models/gguf`) for local weights. The CUDA build
+architectures include both SM80 and SM86. Original launchers retain their engine
+settings; use `serve.sh` for the shared Docker/Singularity vLLM path.
 
-```bash
-cd ../DS4-flash && ./build-sif.sh
-cd ../Laguna-S2.1 && ./build-sif.sh
-```
+## Benchmarks and validation
 
-All build helpers use the unprivileged `--fakeroot` mode. The cluster must have
-fakeroot/user namespaces enabled for the current account.
+See [benchmarks/README.md](benchmarks/README.md) for TPS, TTFT, TPOT, ITL and
+latency recording by model, hardware profile and runtime. No performance results
+are invented. Run local checks with `python3 -m unittest discover -s tests -v`.
 
-## Adding a New Profile
+## Suggested next improvements
 
-```bash
-mkdir -p profiles/<your-profile>
-cp profiles/4xa100/config.env profiles/<your-profile>/config.env
-# Edit config.env for your GPU layout, then add per-project overrides as needed.
-```
+* Validate each model/quantization on both GPU profiles, then commit exact image
+  digests and weight revisions with known-good settings.
+* Add GPU CI smoke runs checking `/health` and one completion for each runtime.
+* Tune context and concurrency from measured KV-cache capacity; original large
+  context values should be confirmed under realistic load.
+* Add Slurm job templates and record NUMA/NVLink topology rather than assuming
+  the same topology on every machine with the same GPU count.
+* Pin llama.cpp fork commits and CUDA base image digests for repeatable builds.
+* Collect GPU memory, power and utilization alongside benchmark latency.
 
-## Adding a New Project
-
-1. Create the project directory with its run script.
-2. Have the run script source `config.env` and a project-specific `.env` from
-   the active profile directory (see existing scripts for the pattern).
-3. Add the corresponding `.env` file in each hardware profile.
-
-## How It Works
-
-1. `switch-profile.sh` sources `profiles/<profile>/config.env`, which sets
-   `CUDA_VISIBLE_DEVICES`, `TENSOR_SPLIT`, `GPU_COUNT`, NUMA bindings, etc.
-2. Each `run-*.sh` script reads `LLM_HW_PROFILE` (or defaults to `4xa100`),
-   sources `config.env` for shared GPU layout, then sources its project-specific
-   `.env` for model paths and server parameters. The Qwen3.8 GGUF launcher uses
-   UD-IQ3_XXS on 2×A6000 and UD-Q4_K_XL on 4×A100.
-3. The Qwen3.8 GGUF launcher passes
-   `--override-tensor per_layer_token_embd=CPU` so its large n-gram/PLE table is
-   kept in host RAM instead of GPU VRAM on both hardware profiles.
-4. To change hardware, re-source `switch-profile.sh` with a different profile.
-   No script editing needed.
+References: [vLLM Docker deployment](https://docs.vllm.ai/en/stable/deployment/docker/)
+and [benchmark CLI](https://docs.vllm.ai/en/stable/cli/bench/serve/).
