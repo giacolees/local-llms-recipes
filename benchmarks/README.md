@@ -8,10 +8,10 @@ and run the matching vLLM CLI on the GPU host (or a documented client host):
 
 ```bash
 export LLM_HW_PROFILE=4xa100 LLM_RUNTIME=docker
-export VLLM_MODEL=Qwen/Qwen3.6-27B
 export VLLM_IMAGE=vllm/vllm-openai:<tested-version>
 export MODEL_REVISION=<weights-commit>
 # Run from the repo root; set BASE_URL if using a different server address.
+# The model ID and default port (8600 here) come from the recipe.
 CONCURRENCY=1 NUM_PROMPTS=100 ./benchmarks/run.sh Qwen3.6-27B
 CONCURRENCY=8 NUM_PROMPTS=100 ./benchmarks/run.sh Qwen3.6-27B
 ```
@@ -36,3 +36,31 @@ metadata.json; these must describe the server, not just the client environment.
 Copy the server log into the run directory for reproducibility. The runner cannot
 verify a remote server's hardware or configuration. Inspect raw JSON before
 claiming a result, and avoid comparing different quantizations as equivalent.
+
+## Recipe and cluster integration
+
+All model directories are accepted. Imported recipes load `recipe.env` and the
+same hardware overrides as their launchers. The runner targets one replica;
+`REPLICA_INDEX` chooses it. `MODEL`/`VLLM_MODEL`, `BASE_URL` and `SERVED_MODEL`
+override weights/tokenizer, endpoint and API model name when needed. Keep these
+identical to the running server; the runner does not start or reconfigure it.
+If the server used a foreground `PORT` override, set `BASE_URL` accordingly.
+
+For the distributed Qwen model:
+
+```bash
+LLM_HW_PROFILE=4xa6000 LLM_RUNTIME=singularity MODEL_REVISION=<weights-commit> \
+  ./benchmarks/run.sh Qwen3.8-27B-Cluster
+```
+
+The head IP, port, served name, weights ID and image come from the cluster
+profile. Metadata additionally records TP, PP, node IPs and GPUs per node.
+GPU observations in metadata are explicitly **client-side**; attach GPU data
+from both server nodes for cluster comparisons. Runtime is part of the results
+path, so set it to the server runtime even if the client runs outside a container.
+`DRY_RUN=1` prints the resolved benchmark command without generating a record.
+
+Performance records come from the streaming vLLM benchmark CLI. The capability
+gates' informal non-streaming curl timings are response timings, not token-level
+TTFT or ITL measurements. Mock gate runs are only test-harness checks and must
+never be entered as model performance records.
